@@ -1156,3 +1156,769 @@ We also restarted the backend container and verified that Todo records remained 
 
 **Project:** Highly Available Three-Tier Application on Kubernetes  
 **Last Updated:** November 10, 2026
+
+# Junior DevOps Engineering Assignment
+## Week 1 – Daily Progress Report
+**Date:** November 11, 2026  
+**Project:** Highly Available Three-Tier Application on Kubernetes  
+**Application:** Junior DevOps Todo Application  
+**Status:** Frontend and Backend Kubernetes Deployment Completed – Database Connectivity Testing Pending
+
+---
+
+# 1. Objective
+
+The objective of today's work was to continue migrating the Todo application from Docker Compose to Kubernetes using Minikube.
+
+The main tasks were:
+
+- Configure the frontend for Kubernetes communication.
+- Configure Nginx as a reverse proxy.
+- Build an updated frontend Docker image.
+- Load the image into Minikube.
+- Create the frontend Kubernetes Deployment.
+- Create the frontend Kubernetes Service.
+- Access the application through the Minikube cluster.
+- Verify the frontend and backend Pods.
+
+# 2. Development Environment
+
+The following tools and technologies were used:
+
+| Technology | Purpose |
+|---|---|
+| Windows | Host operating system |
+| WSL Ubuntu 24.04 | Linux development environment |
+| Docker Desktop | Containerization |
+| Docker Engine 29.2.1 | Docker image building and containers |
+| Minikube 1.38.1 | Local Kubernetes cluster |
+| Kubernetes 1.35.1 | Container orchestration |
+| Helm 4.3.0 | Kubernetes package management |
+| Python 3.12.3 | Backend development |
+| Flask | Backend REST API |
+| PostgreSQL 16 | Database |
+| Nginx Alpine | Frontend web server and reverse proxy |
+| kubectl | Kubernetes resource management |
+
+**Project working directory:**
+
+`/home/teja/junior-devops-ha-app`
+
+**Minikube profile:** `devops-fresh`
+
+**Kubernetes namespace:** `junior-devops`
+
+# 3. Previous Work and Initial Setup
+
+Before today's Kubernetes frontend work, the following components had already been completed.
+
+### 3.1 Application Development
+
+The application consists of:
+
+**Frontend:**
+- HTML
+- CSS
+- JavaScript
+- Todo task management interface
+
+**Backend:**
+- Python Flask application
+- REST API endpoints
+- PostgreSQL database integration
+- Health-check endpoint
+
+### 3.2 Backend API Endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/` | Backend welcome response |
+| GET | `/health` | Backend and database health check |
+| GET | `/todos` | Retrieve Todo tasks |
+| POST | `/todos` | Create a Todo task |
+| PUT | `/todos/<id>` | Update a Todo task |
+| DELETE | `/todos/<id>` | Delete a Todo task |
+
+### 3.3 Docker Compose Setup
+
+The application was successfully containerized using Docker.
+
+Created containers:
+
+- `junior-devops-backend`
+- `junior-devops-frontend`
+- `junior-devops-postgres`
+
+The existing PostgreSQL container was reused instead of creating another database container.
+
+The frontend and backend were tested using Docker Compose, and the application was able to perform Todo operations.
+
+Database persistence was also tested by restarting the backend container and checking whether existing tasks remained available.
+
+### 3.4 Docker Images
+
+Previously created images:
+
+- `junior-devops-ha-app-backend:latest`
+- `junior-devops-ha-app-frontend:latest`
+
+Both images were loaded into the Minikube environment before deploying the backend.
+
+# 4. Kubernetes Cluster Preparation
+
+### 4.1 Starting Minikube
+
+The existing Minikube profile was started:
+
+```bash
+minikube start -p devops-fresh
+```
+
+Verified the Kubernetes node:
+
+```bash
+kubectl get nodes
+```
+
+The node was successfully displayed with status:
+
+```text
+devops-fresh   Ready   control-plane
+```
+
+### 4.2 Creating the Kubernetes Namespace
+
+Created a separate namespace for the assignment:
+
+```bash
+kubectl create namespace junior-devops
+```
+
+Set the current Kubernetes context to use this namespace:
+
+```bash
+kubectl config set-context --current --namespace=junior-devops
+```
+
+Verified the namespace:
+
+```bash
+kubectl get namespaces
+```
+
+The `junior-devops` namespace was successfully created.
+
+### 4.3 Creating the Database Secret
+
+The database environment variables were stored in the existing `.env` file.
+
+Created a Kubernetes Secret:
+
+```bash
+kubectl create secret generic junior-devops-db-secret \
+  --namespace=junior-devops \
+  --from-env-file=.env
+```
+
+Verified the Secret:
+
+```bash
+kubectl describe secret junior-devops-db-secret -n junior-devops
+```
+
+The Secret contained the following keys:
+
+- DB_HOST
+- DB_PORT
+- DB_NAME
+- DB_USER
+- DB_PASSWORD
+
+**Security note:** The `.env` file is excluded from Git using `.gitignore`. Database credentials must not be committed to GitHub.
+
+# 5. Backend Kubernetes Deployment
+
+### 5.1 Backend Deployment YAML
+
+Created:
+
+`k8s/backend-deployment.yaml`
+
+The Deployment configuration includes:
+
+- Deployment name: `junior-devops-backend`
+- Namespace: `junior-devops`
+- Initial replicas: 1
+- Container image: `junior-devops-ha-app-backend:latest`
+- Container port: 5001
+- Image pull policy: Never
+- Database password loaded from the Kubernetes Secret.
+
+The database configuration is provided through environment variables.
+
+### 5.2 Backend Deployment Validation
+
+Validated the YAML:
+
+```bash
+kubectl apply --dry-run=client -f k8s/backend-deployment.yaml
+```
+
+Applied the Deployment:
+
+```bash
+kubectl apply -f k8s/backend-deployment.yaml
+```
+
+### 5.3 Backend Pod Verification
+
+```bash
+kubectl get pods -n junior-devops
+```
+
+The backend Pod successfully reached:
+
+```text
+READY: 1/1
+STATUS: Running
+RESTARTS: 0
+```
+
+Checked backend logs:
+
+```bash
+kubectl logs deployment/junior-devops-backend -n junior-devops
+```
+
+Flask started successfully and listened on:
+
+```text
+0.0.0.0:5001
+```
+
+# 6. Backend Kubernetes Service
+
+Created:
+
+`k8s/backend-service.yaml`
+
+The Service configuration:
+
+| Property | Value |
+|---|---|
+| Service name | junior-devops-backend |
+| Type | ClusterIP |
+| Namespace | junior-devops |
+| Service port | 5001 |
+| Target port | 5001 |
+
+Validated:
+
+```bash
+kubectl apply --dry-run=client -f k8s/backend-service.yaml
+```
+
+Applied:
+
+```bash
+kubectl apply -f k8s/backend-service.yaml
+```
+
+Verified:
+
+```bash
+kubectl get services -n junior-devops
+```
+
+The backend Service was successfully created.
+
+It provides a stable internal Kubernetes endpoint for the backend application.
+
+# 7. Frontend Configuration for Kubernetes
+
+This was one of the main activities completed today.
+
+### 7.1 Identifying the Frontend Networking Problem
+
+The original frontend JavaScript contained:
+
+```javascript
+const API_URL = "http://localhost:5001/todos";
+```
+
+This configuration worked with Docker Compose.
+
+However, Kubernetes uses internal Service DNS to communicate between Pods.
+
+The browser cannot directly resolve Kubernetes internal Service names because JavaScript executes in the browser rather than inside the frontend Pod.
+
+Therefore, we needed a reverse proxy.
+
+### 7.2 Updating the Frontend API URL
+
+Modified:
+
+`frontend/index.html`
+
+Changed the API URL to:
+
+```javascript
+const API_URL = "/todos";
+```
+
+This makes the browser send API requests to the same origin that serves the frontend.
+
+### 7.3 Creating the Nginx Configuration
+
+Created:
+
+`frontend/nginx.conf`
+
+Configuration:
+
+```nginx
+server {
+    listen 80;
+
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /todos {
+        proxy_pass http://junior-devops-backend:5001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+**Purpose:**
+
+- Nginx listens on port 80.
+- The root location serves the frontend HTML.
+- Requests to `/todos` are forwarded to the backend Kubernetes Service.
+- Kubernetes internal DNS resolves `junior-devops-backend`.
+
+This allows the browser to communicate with the backend without directly accessing Kubernetes internal DNS.
+
+# 8. Updating the Frontend Dockerfile
+
+Modified:
+
+`frontend/Dockerfile`
+
+Final configuration:
+
+```dockerfile
+FROM nginx:alpine
+
+COPY frontend/index.html /usr/share/nginx/html/index.html
+
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+The Dockerfile now copies:
+
+1. Frontend HTML file.
+2. Custom Nginx reverse proxy configuration.
+
+# 9. Building the Updated Frontend Docker Image
+
+Built a new image with a separate version tag:
+
+```bash
+docker build -t junior-devops-ha-app-frontend:k8s-v1 -f frontend/Dockerfile .
+```
+
+The build completed successfully.
+
+Using a separate tag helps distinguish the Kubernetes-ready frontend image from the original Docker Compose image.
+
+### 9.1 Loading the Image into Minikube
+
+Executed:
+
+```bash
+minikube image load junior-devops-ha-app-frontend:k8s-v1 -p devops-fresh
+```
+
+Verified:
+
+```bash
+minikube image ls -p devops-fresh | grep junior-devops-ha-app-frontend
+```
+
+Output confirmed both images:
+
+```text
+docker.io/library/junior-devops-ha-app-frontend:latest
+docker.io/library/junior-devops-ha-app-frontend:k8s-v1
+```
+
+The updated frontend image was successfully loaded into Minikube.
+
+# 10. Frontend Kubernetes Deployment
+
+Created:
+
+`k8s/frontend-deployment.yaml`
+
+Deployment configuration:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: junior-devops-frontend
+  namespace: junior-devops
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: junior-devops-frontend
+
+  template:
+    metadata:
+      labels:
+        app: junior-devops-frontend
+
+    spec:
+      containers:
+        - name: frontend
+          image: junior-devops-ha-app-frontend:k8s-v1
+          imagePullPolicy: Never
+
+          ports:
+            - containerPort: 80
+              protocol: TCP
+
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "64Mi"
+              cpu: "250m"
+```
+
+### 10.1 Deployment Validation
+
+```bash
+kubectl apply --dry-run=client -f k8s/frontend-deployment.yaml
+```
+
+The dry run completed successfully.
+
+Applied the Deployment:
+
+```bash
+kubectl apply -f k8s/frontend-deployment.yaml
+```
+
+### 10.2 Frontend Pod Verification
+
+```bash
+kubectl get pods -n junior-devops
+```
+
+Verified output:
+
+```text
+NAME                                      READY   STATUS
+junior-devops-backend-5bbff46786-wxwvk   1/1     Running
+junior-devops-frontend-7f6c6868c6-l8mqx  1/1     Running
+```
+
+Both Pods reached Running status with zero restarts at the time of verification.
+
+# 11. Frontend Kubernetes Service
+
+Created:
+
+`k8s/frontend-service.yaml`
+
+Configuration:
+
+```yaml
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: junior-devops-frontend
+  namespace: junior-devops
+
+spec:
+  type: NodePort
+
+  selector:
+    app: junior-devops-frontend
+
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+      nodePort: 30080
+```
+
+### 11.1 Service Explanation
+
+| Property | Value | Purpose |
+|---|---|---|
+| Service name | junior-devops-frontend | Frontend Service |
+| Type | NodePort | External access to frontend |
+| Port | 80 | Service port |
+| Target port | 80 | Nginx container port |
+| NodePort | 30080 | Node access port |
+
+Applied the Service:
+
+```bash
+kubectl apply -f k8s/frontend-service.yaml
+```
+
+Verified:
+
+```bash
+kubectl get services -n junior-devops
+```
+
+Verified output:
+
+```text
+NAME                     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)
+junior-devops-backend    ClusterIP   10.105.55.213   <none>        5001/TCP
+junior-devops-frontend   NodePort    10.96.215.52    <none>        80:30080/TCP
+```
+
+Both Kubernetes Services were successfully created.
+
+# 12. Accessing the Frontend Through Minikube
+
+### 12.1 Checking the Minikube IP
+
+Executed:
+
+```bash
+minikube ip -p devops-fresh
+```
+
+Output:
+
+```text
+192.168.58.2
+```
+
+Initially attempted to access:
+
+```text
+http://192.168.58.2:30080
+```
+
+However, the Windows browser displayed:
+
+```text
+This site can't be reached
+```
+
+### 12.2 Troubleshooting Minikube NodePort Access
+
+Executed:
+
+```bash
+minikube service junior-devops-frontend -n junior-devops --url -p devops-fresh
+```
+
+Minikube returned:
+
+```text
+http://127.0.0.1:41007
+```
+
+It also displayed:
+
+```text
+Because you are using a Docker driver on linux,
+the terminal needs to be open to run it.
+```
+
+This is an informational message. Minikube maintains a temporary tunnel while the command is running.
+
+### 12.3 Successful Browser Access
+
+Opened:
+
+```text
+http://127.0.0.1:41007
+```
+
+**Result: SUCCESS**
+
+The Todo application frontend loaded successfully in the browser through the Minikube Service tunnel.
+
+The terminal running the Minikube service command must remain open while using this temporary URL.
+
+If the tunnel is stopped or the terminal closes, run the command again to obtain an active access URL.
+
+# 13. Current Kubernetes Architecture
+
+The current application architecture is:
+
+```text
+                 USER BROWSER
+                      |
+                      |
+             Minikube Service Tunnel
+                      |
+                      |
+              FRONTEND SERVICE
+                 NodePort
+                  30080
+                      |
+                      |
+              FRONTEND POD
+                Nginx :80
+                      |
+                      |
+              Reverse Proxy
+                      |
+                      |
+              BACKEND SERVICE
+                 ClusterIP
+                  Port 5001
+                      |
+                      |
+               BACKEND POD
+                Flask :5001
+                      |
+                      |
+                POSTGRESQL
+```
+
+**Important:** The frontend-to-backend reverse proxy is configured, but successful end-to-end API and database operations have not yet been verified in Kubernetes.
+
+# 14. Current Project Status
+
+| Task | Status |
+|---|---|
+| Flask backend development | Completed |
+| Frontend development | Completed |
+| PostgreSQL Docker container setup | Completed |
+| Docker Compose setup | Completed |
+| Docker image creation | Completed |
+| Minikube cluster setup | Completed |
+| Kubernetes namespace creation | Completed |
+| Kubernetes database Secret creation | Completed |
+| Backend Deployment | Completed |
+| Backend ClusterIP Service | Completed |
+| Frontend API URL update | Completed |
+| Nginx reverse proxy configuration | Completed |
+| Updated frontend Docker image | Completed |
+| Frontend image loaded into Minikube | Completed |
+| Frontend Deployment | Completed |
+| Frontend NodePort Service | Completed |
+| Browser access through Minikube tunnel | Verified |
+| Kubernetes Todo CRUD testing | Pending |
+| Kubernetes backend-to-database connectivity | Pending |
+| High availability and scaling | Pending |
+| CI/CD pipeline | Pending |
+| CloudNativePG deployment | Pending |
+| Prometheus and Grafana monitoring | Pending |
+| Failure testing | Pending |
+
+# 15. Pending Tasks – Next Working Session
+
+The next session will continue from the current Kubernetes deployment.
+
+### Task 1: Test Todo Operations
+
+Open the application using the active Minikube tunnel.
+
+Test:
+
+- Add a Todo task.
+- Retrieve existing tasks.
+- Edit a Todo task.
+- Mark a task as completed.
+- Delete a Todo task.
+
+Check whether each operation works.
+
+### Task 2: Verify Backend Health
+
+Check the backend health endpoint and verify database connectivity.
+
+The backend health endpoint is:
+
+```text
+/health
+```
+
+It executes a database query and reports whether the database connection is healthy.
+
+### Task 3: Troubleshoot PostgreSQL Connectivity
+
+The existing PostgreSQL container is running separately from the Kubernetes Pods.
+
+Its Docker network connectivity to Minikube Pods has not yet been established or verified.
+
+Investigate this without deleting or recreating the existing PostgreSQL container or its persistent volume.
+
+### Task 4: Complete Week 1
+
+After successful frontend, backend, and database testing:
+
+- Verify application functionality.
+- Review Kubernetes Deployments.
+- Review Kubernetes Services.
+- Confirm application connectivity.
+- Update the project documentation.
+
+### Task 5: Continue Week 2
+
+Proceed with:
+
+- GitLab CI/CD pipeline.
+- Docker image publishing.
+- CloudNativePG installation.
+- PostgreSQL primary and replica configuration.
+- Persistent storage.
+
+# 16. Important Notes and Safety Considerations
+
+1. Continue using the existing Minikube profile `devops-fresh`.
+2. Continue using the existing namespace `junior-devops`.
+3. Do not reinstall Docker, Minikube, Kubernetes, or Helm.
+4. Do not delete existing Docker containers or PostgreSQL volumes.
+5. Do not modify unrelated Kubernetes workloads in the `default` namespace.
+6. Keep `.env` excluded from Git.
+7. Do not commit database credentials.
+8. Keep the terminal running while using the temporary Minikube service tunnel.
+9. Do not assume database connectivity merely because the backend Pod is Running.
+10. The current deployment uses one replica for each application component; high availability is not yet implemented.
+
+---
+
+# 17. Final Summary
+
+Today's work successfully advanced the Junior DevOps HA Todo Application from Docker Compose deployment to Kubernetes-based frontend and backend deployment.
+
+The backend and frontend Kubernetes Deployments were created successfully, and both Pods reached Running status.
+
+A custom Nginx reverse proxy was configured to forward frontend API requests to the backend Kubernetes Service. The updated frontend Docker image was built, loaded into Minikube, and deployed.
+
+Both Kubernetes Services were created successfully. After troubleshooting the NodePort access issue caused by the local Minikube Docker-driver environment, the application frontend was successfully accessed through the Minikube service tunnel.
+
+**Current stopping point:** The Todo application webpage is accessible through Kubernetes. Complete CRUD functionality and PostgreSQL connectivity still need verification.
+
+**Next session starting point:** Test Todo CRUD operations and verify backend-to-PostgreSQL connectivity without disturbing existing resources.
+
+**Progress:** Frontend and backend Kubernetes deployment completed. Week 1 application integration testing remains in progress.
