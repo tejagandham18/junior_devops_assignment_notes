@@ -1922,3 +1922,393 @@ Both Kubernetes Services were created successfully. After troubleshooting the No
 **Next session starting point:** Test Todo CRUD operations and verify backend-to-PostgreSQL connectivity without disturbing existing resources.
 
 **Progress:** Frontend and backend Kubernetes deployment completed. Week 1 application integration testing remains in progress.
+
+# Day 9 – Daily DevOps Progress Report
+**Date:** November 13, 2026  
+**Project:** Junior DevOps Engineering Assignment – Highly Available Three-Tier Application on Kubernetes  
+**Focus:** Kubernetes Application Integration, PostgreSQL Connectivity, CRUD Testing, Pod Restart and Data Persistence Verification
+
+---
+
+## 1. Started the Existing Minikube Cluster
+
+Started the existing Minikube profile named `devops-fresh`.
+
+**Command executed:**
+```bash
+minikube start -p devops-fresh
+```
+
+Verified the Kubernetes cluster and confirmed that the existing cluster was running.
+
+**Important:** The existing Minikube profile was preserved. No new cluster was created.
+
+---
+
+## 2. Verified Kubernetes Application Pods
+
+Checked the application Pods in the `junior-devops` namespace.
+
+**Command executed:**
+```bash
+kubectl get pods -n junior-devops
+```
+
+**Observed result:**
+```text
+NAME                                      READY   STATUS    RESTARTS
+junior-devops-backend-5bbff46786-wxwvk   1/1     Running   1
+junior-devops-frontend-7f6c6868c6-l8mqx  1/1     Running   2
+```
+
+Confirmed that both frontend and backend Pods were running.
+
+---
+
+## 3. Connected Minikube to the Existing PostgreSQL Docker Network
+
+Investigated the backend's PostgreSQL connection issue.
+
+The backend initially could not resolve the hostname `junior-devops-postgres` because the PostgreSQL container was running outside the Kubernetes cluster.
+
+Identified the existing Docker network:
+
+- Network: `junior-devops-network`
+- PostgreSQL container IP: `172.25.0.4`
+- Minikube container IP on this network: `172.25.0.5`
+
+Connected the existing Minikube container to the PostgreSQL Docker network.
+
+**Command executed:**
+```bash
+docker network connect junior-devops-network devops-fresh
+```
+
+This allowed the Kubernetes environment to reach the existing PostgreSQL container through the shared Docker network.
+
+Verified TCP connectivity from the backend Pod.
+
+**Command executed:**
+```bash
+kubectl exec deployment/junior-devops-backend -n junior-devops -- python -c "import socket; s=socket.create_connection(('172.25.0.4',5432),timeout=5); print('SUCCESS: PostgreSQL is reachable'); s.close()"
+```
+
+**Result:**
+```text
+SUCCESS: PostgreSQL is reachable
+```
+
+---
+
+## 4. Created a Kubernetes PostgreSQL Service
+
+Created `k8s/postgres-service.yaml` to expose the existing PostgreSQL database through a Kubernetes ClusterIP Service.
+
+**Configuration:**
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: junior-devops-postgres
+  namespace: junior-devops
+spec:
+  type: ClusterIP
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+```
+
+Applied the configuration:
+
+```bash
+kubectl apply -f k8s/postgres-service.yaml
+```
+
+**Result:**
+```text
+service/junior-devops-postgres created
+```
+
+The Service provides a stable Kubernetes DNS name for the backend to use when connecting to PostgreSQL.
+
+---
+
+## 5. Created PostgreSQL Endpoints
+
+Created `k8s/postgres-endpoints.yaml` to connect the PostgreSQL Service to the existing Docker PostgreSQL container.
+
+**Configuration:**
+```yaml
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: junior-devops-postgres
+  namespace: junior-devops
+subsets:
+  - addresses:
+      - ip: 172.25.0.4
+    ports:
+      - port: 5432
+        protocol: TCP
+```
+
+Applied the configuration:
+
+```bash
+kubectl apply -f k8s/postgres-endpoints.yaml
+```
+
+Verified the endpoint:
+
+```bash
+kubectl get endpoints junior-devops-postgres -n junior-devops
+```
+
+**Result:**
+```text
+172.25.0.4:5432
+```
+
+The PostgreSQL Service now forwards traffic to the existing database container.
+
+---
+
+## 6. Verified PostgreSQL Authentication and Database Query
+
+Performed an actual database connection test from inside the Kubernetes backend Pod.
+
+**Command executed:**
+```bash
+kubectl exec deployment/junior-devops-backend -n junior-devops -- python -c "import os, psycopg; conn=psycopg.connect(host=os.environ['DB_HOST'], port=os.environ['DB_PORT'], dbname=os.environ['DB_NAME'], user=os.environ['DB_USER'], password=os.environ['DB_PASSWORD'], connect_timeout=5); cur=conn.execute('SELECT 1'); print('DATABASE CONNECTION SUCCESS:', cur.fetchone()); conn.close()"
+```
+
+**Result:**
+```text
+DATABASE CONNECTION SUCCESS: (1,)
+```
+
+This verified:
+
+- Kubernetes DNS and Service routing.
+- PostgreSQL network connectivity.
+- Database authentication using the configured credentials.
+- Successful SQL query execution.
+
+Database credentials were accessed through environment variables and the Kubernetes Secret, without exposing the password in the command.
+
+---
+
+## 7. Accessed the Frontend Using Kubernetes Port Forwarding
+
+Initially, the Minikube NodePort URL was not accessible through the Windows browser.
+
+Also, after connecting Minikube to the additional Docker network, the `minikube service` command encountered a multiple-network IP parsing issue.
+
+Used Kubernetes port forwarding as an alternative.
+
+**Command executed:**
+```bash
+kubectl port-forward service/junior-devops-frontend 8082:80 -n junior-devops
+```
+
+Opened the application in the browser:
+
+```text
+http://127.0.0.1:8082
+```
+
+Successfully accessed the Todo application.
+
+**Important:** The port-forward command must remain running in its terminal while accessing the application.
+
+---
+
+## 8. Performed End-to-End Todo CRUD Testing
+
+Tested the application's main functionality through the browser.
+
+| Operation | Description | Result |
+|---|---|---|
+| Create | Added new Todo tasks | Passed |
+| Read | Retrieved and displayed existing tasks | Passed |
+| Update | Edited existing tasks | Passed |
+| Delete | Deleted Todo tasks | Passed |
+
+Also confirmed that previously created tasks were displayed correctly in the frontend.
+
+**Result:** All CRUD operations worked successfully.
+
+---
+
+## 9. Restarted the Backend Deployment
+
+Restarted the Kubernetes backend Deployment to verify application recovery.
+
+**Command executed:**
+```bash
+kubectl rollout restart deployment/junior-devops-backend -n junior-devops
+```
+
+The restart completed successfully.
+
+Verified the Pods:
+
+```bash
+kubectl get pods -n junior-devops
+```
+
+**Observed result:**
+```text
+NAME                                      READY   STATUS    RESTARTS   AGE
+junior-devops-backend-6fcb59869b-cltwz    1/1     Running   0          41s
+junior-devops-frontend-7f6c6868c6-l8mqx   1/1     Running   2          46h
+```
+
+Confirmed that Kubernetes replaced the backend Pod and the new Pod reached `1/1 Running`.
+
+---
+
+## 10. Verified Database Persistence After Backend Restart
+
+After restarting the backend, the frontend URL was temporarily unavailable because the previous port-forward process was no longer running.
+
+Started port forwarding again:
+
+```bash
+kubectl port-forward service/junior-devops-frontend 8082:80 -n junior-devops
+```
+
+Opened:
+
+```text
+http://127.0.0.1:8082
+```
+
+Refreshed the Todo application and confirmed that the previously created tasks were still visible.
+
+**Result:**
+
+- Existing Todo records remained available.
+- Frontend successfully reconnected to the backend.
+- PostgreSQL retained the existing application data after the backend Pod restart.
+
+**Conclusion:** The backend restart and database persistence test passed.
+
+---
+
+## 11. Final Kubernetes Deployment and Service Verification
+
+Performed the final health verification of the application's Kubernetes resources.
+
+**Command executed:**
+```bash
+kubectl get deployments,services -n junior-devops
+```
+
+**Observed result:**
+```text
+NAME                                     READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/junior-devops-backend    1/1     1            1           47h
+deployment.apps/junior-devops-frontend   1/1     1            1           46h
+
+NAME                             TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+service/junior-devops-backend    ClusterIP   10.105.55.213   <none>        5001/TCP       46h
+service/junior-devops-frontend   NodePort    10.96.215.52    <none>        80:30080/TCP   46h
+service/junior-devops-postgres   ClusterIP   10.106.24.31    <none>        5432/TCP       15m
+```
+
+Confirmed that:
+
+- Backend Deployment was available (1/1).
+- Frontend Deployment was available (1/1).
+- Backend ClusterIP Service was present.
+- Frontend NodePort Service was present.
+- PostgreSQL ClusterIP Service was present.
+
+---
+
+## 12. Files Created or Updated
+
+The following Kubernetes configuration files were created or used during today's work:
+
+```text
+k8s/
+├── backend-deployment.yaml
+├── backend-service.yaml
+├── frontend-deployment.yaml
+├── frontend-service.yaml
+├── postgres-service.yaml
+└── postgres-endpoints.yaml
+```
+
+New PostgreSQL integration files:
+
+- `k8s/postgres-service.yaml`
+- `k8s/postgres-endpoints.yaml`
+
+---
+
+## 13. Technical Concepts Learned
+
+Today's hands-on work helped reinforce the following Kubernetes and DevOps concepts:
+
+1. **Kubernetes Service:** Provides a stable network endpoint for accessing application components.
+2. **ClusterIP:** Enables internal communication between services inside the Kubernetes cluster.
+3. **Endpoints:** Connect a Kubernetes Service to specific backend IP addresses and ports.
+4. **Kubernetes DNS:** Allows applications to communicate using Service names instead of hardcoded IP addresses.
+5. **Docker Networking:** Allows containers on a shared Docker network to communicate.
+6. **Port Forwarding:** Provides temporary local access to Kubernetes services.
+7. **Deployment Restart:** Replaces application Pods through a Kubernetes Deployment rollout.
+8. **Database Persistence:** Application data remains available after a backend Pod restart when the data is stored in an independently running database.
+9. **CRUD Testing:** Validates Create, Read, Update and Delete operations.
+10. **Kubernetes Health Verification:** Checks Deployment availability and Service configuration.
+
+---
+
+## 14. Current Progress and Next Steps
+
+**November 13 milestone: Completed.**
+
+Today's application integration and verification tasks were completed successfully.
+
+| Task | Status |
+|---|---|
+| Start existing Minikube cluster | Completed |
+| Verify frontend and backend Pods | Completed |
+| Connect Kubernetes backend to PostgreSQL | Completed |
+| Create PostgreSQL Service | Completed |
+| Configure PostgreSQL Endpoints | Completed |
+| Verify database authentication and SQL query | Completed |
+| Access frontend through port forwarding | Completed |
+| Test all CRUD operations | Completed |
+| Restart backend Deployment | Completed |
+| Verify data persistence after restart | Completed |
+| Verify final Deployments and Services | Completed |
+
+### Important Architecture Note
+
+The PostgreSQL database is currently an existing Docker container connected to Kubernetes through a manually configured Service and Endpoints resource.
+
+This is a temporary integration approach for the current development milestone. The Endpoints configuration uses the PostgreSQL container's current IP address (`172.25.0.4`), so it may need updating if that container is recreated or receives a different IP.
+
+The planned next phase is to migrate database management to **CloudNativePG**, with a primary database instance, replicas and persistent storage.
+
+### Upcoming Work
+
+- Configure CloudNativePG.
+- Set up PostgreSQL primary and replica instances.
+- Configure persistent storage.
+- Implement backend horizontal scaling.
+- Configure Horizontal Pod Autoscaler (HPA).
+- Implement CI/CD integration.
+- Set up Prometheus and Grafana monitoring.
+- Perform application and infrastructure failure testing.
+
+---
+
+**Daily Summary:**
+
+Successfully integrated the Kubernetes frontend and backend with the existing PostgreSQL database, configured Kubernetes Service and Endpoints resources, verified database connectivity, completed CRUD testing, restarted the backend Deployment, confirmed data persistence and performed final Kubernetes health checks.
+
+**Week 1 technical implementation and verification: Completed against the agreed Week 1 checklist.**
