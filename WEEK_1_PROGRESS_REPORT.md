@@ -2312,3 +2312,263 @@ The planned next phase is to migrate database management to **CloudNativePG**, w
 Successfully integrated the Kubernetes frontend and backend with the existing PostgreSQL database, configured Kubernetes Service and Endpoints resources, verified database connectivity, completed CRUD testing, restarted the backend Deployment, confirmed data persistence and performed final Kubernetes health checks.
 
 **Week 1 technical implementation and verification: Completed against the agreed Week 1 checklist.**
+
+
+# DevOps Assignment – Daily Progress Notes
+
+**Date:** 17 November 2026  
+**Project:** Junior DevOps Engineering Assignment – Highly Available Three-Tier Application on Kubernetes  
+**Phase:** Week 2 – CI/CD and CloudNativePG Preparation
+
+---
+
+## 1. Today's Objective
+
+Resume Week 2 after recovering the existing Minikube cluster.
+
+Today's focus was to:
+- Recover and verify the existing Kubernetes cluster.
+- Inspect Minikube add-ons.
+- Check the existing StorageClass, PVs and PVCs.
+- Inspect Kubernetes namespaces.
+- Prepare the environment for CloudNativePG installation.
+
+## 2. Minikube Cluster Recovery
+
+The existing Minikube profile `devops-fresh` encountered a startup issue because its Docker container was connected to two Docker networks.
+
+Minikube could not correctly identify the node IP.
+
+### Recovery Steps
+
+- Disconnected the Minikube container from the additional `junior-devops-network`.
+- Verified that Minikube remained connected to its own `devops-fresh` network.
+- Successfully started the existing Minikube profile.
+
+Command used:
+
+```bash
+minikube start -p devops-fresh
+```
+
+Verified the Kubernetes node:
+
+```bash
+kubectl get nodes
+```
+
+**Result:** The `devops-fresh` node was `Ready` and running Kubernetes `v1.35.1`.
+
+### Cluster Health Verification
+
+Commands used:
+
+```bash
+kubectl get pods -A
+kubectl get pods,deployments,services -n junior-devops
+minikube profile list
+kubectl describe node devops-fresh
+```
+
+Observations:
+
+- All 13 Pods were in the `Running` state during inspection.
+- Frontend and backend Deployments in `junior-devops` were ready.
+- Node status was `Ready`.
+- MemoryPressure: `False`.
+- DiskPressure: `False`.
+- PIDPressure: `False`.
+
+**Resource consideration:**
+
+The Minikube Docker container has a 2 GiB memory limit. We need to consider this limit before deploying additional database instances.
+
+## 3. Minikube Add-ons Inspection
+
+Command used:
+
+```bash
+minikube addons list -p devops-fresh
+```
+
+Relevant results:
+
+| Add-on | Status | Purpose |
+|---|---|---|
+| default-storageclass | Enabled | Provides the default StorageClass |
+| storage-provisioner | Enabled | Dynamically provisions storage for PVCs |
+| metrics-server | Disabled | Provides resource metrics for kubectl top and HPA |
+| ingress | Disabled | Enables Ingress support |
+
+**Observation:**
+
+The default storage-related add-ons are already enabled.
+
+Metrics Server and Ingress can be configured later when we work on monitoring, autoscaling and Ingress routing.
+
+## 4. StorageClass Inspection
+
+Command used:
+
+```bash
+kubectl get storageclass
+```
+
+Output:
+
+```text
+NAME                 PROVISIONER                RECLAIMPOLICY   VOLUMEBINDINGMODE
+standard (default)   k8s.io/minikube-hostpath   Delete           Immediate
+```
+
+### Understanding the Configuration
+
+- **standard:** Default StorageClass in Kubernetes.
+- **Provisioner:** `k8s.io/minikube-hostpath`.
+- **Reclaim Policy:** `Delete`.
+- **Volume Binding Mode:** `Immediate`.
+
+This StorageClass is available for provisioning persistent volumes for our planned CloudNativePG database.
+
+**Important:** Since the reclaim policy is `Delete`, we must be careful when deleting PVCs.
+
+## 5. Existing PersistentVolumes and PersistentVolumeClaims
+
+Command used:
+
+```bash
+kubectl get pv,pvc -A
+```
+
+Existing storage:
+
+| Resource | Name | Namespace | Capacity | Status |
+|---|---|---|---|---|
+| PVC | ecommerce-postgres-data | default | 1 GiB | Bound |
+| PV | pvc-dc3d4b18-e77f-40f6-abed-3a4926453769 | - | 1 GiB | Bound |
+
+### Observation
+
+The existing E-commerce PostgreSQL PVC is successfully bound to its PV.
+
+It uses the `standard` StorageClass.
+
+**Important:**
+
+We must preserve the existing E-commerce PostgreSQL PV and PVC.
+
+CloudNativePG will use separate PVCs for its own PostgreSQL instances.
+
+## 6. Kubernetes Namespace Inspection
+
+Command used:
+
+```bash
+kubectl get namespaces
+```
+
+Existing namespaces:
+
+```text
+default
+junior-devops
+kube-node-lease
+kube-public
+kube-system
+```
+
+### Observation
+
+- Existing application namespaces are available.
+- The `junior-devops` namespace is present.
+- The `default` namespace is present.
+- No `cnpg-system` namespace exists yet.
+
+This confirms that CloudNativePG has not been installed in this cluster.
+
+## 7. CloudNativePG Architecture – Planned
+
+CloudNativePG is a Kubernetes operator used to manage PostgreSQL database clusters.
+
+### Planned Architecture
+
+```text
+             CloudNativePG Operator
+                       |
+                       v
+              PostgreSQL Cluster
+                       |
+          +------------+------------+
+          |            |            |
+          v            v            v
+       Primary      Replica 1    Replica 2
+       Read/Write   Standby      Standby
+          |            |            |
+          v            v            v
+         PVC          PVC          PVC
+```
+
+### Planned Implementation Steps
+
+1. Install the CloudNativePG operator.
+2. Create a PostgreSQL cluster with one instance.
+3. Verify the database Pod and persistent storage.
+4. Scale the cluster to three instances if resources allow.
+5. Verify database replication.
+6. Test database failover.
+
+**Resource consideration:**
+
+Because the laptop has 8 GB physical RAM and the Minikube Docker container has a 2 GiB memory limit, we will deploy gradually and monitor resource usage before adding replicas.
+
+## 8. Work Not Performed Today
+
+The following tasks are still pending:
+
+- CloudNativePG operator installation.
+- PostgreSQL cluster creation using CloudNativePG.
+- Creation of CloudNativePG PVCs.
+- Database replication configuration.
+- Failover testing.
+
+The following proposed command was discussed but **NOT executed**:
+
+```bash
+kubectl apply --server-side -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.1.yaml
+```
+
+We will verify the official installation instructions and select a compatible version before running the installation command.
+
+No existing database, PV, PVC, Deployment, Service or namespace was intentionally deleted.
+
+## 9. Next Session – Pending Tasks
+
+1. Verify Minikube status and Kubernetes node readiness.
+2. Review the official CloudNativePG installation instructions.
+3. Select a compatible CloudNativePG operator version.
+4. Install the operator in its dedicated namespace.
+5. Verify the operator Pod and Custom Resource Definitions.
+6. Create a PostgreSQL cluster with one instance.
+7. Verify database connectivity and persistent storage.
+8. Add replicas gradually after checking available resources.
+
+## 10. Today's Summary
+
+Today's work focused on **Minikube cluster recovery and CloudNativePG preparation**.
+
+### Completed
+
+- Recovered the existing `devops-fresh` Minikube profile.
+- Verified Kubernetes node and Pod health.
+- Inspected Minikube add-ons.
+- Confirmed that the default StorageClass is available.
+- Inspected existing PVs and PVCs.
+- Identified the E-commerce PostgreSQL storage that must be preserved.
+- Checked existing Kubernetes namespaces.
+- Planned the CloudNativePG architecture.
+
+### Current Status
+
+**Environment inspection completed. CloudNativePG installation is pending.**
+
+Next session, we will begin with CloudNativePG operator installation after verifying the official installation instructions.
