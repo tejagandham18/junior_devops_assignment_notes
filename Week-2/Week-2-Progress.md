@@ -370,3 +370,213 @@ Then proceed with creating `todo_db`, restoring the backup, and connecting the b
 - PostgreSQL currently has one instance. High availability through additional replicas remains pending.
 
 **Today's milestone:** Successfully deployed and verified a Kubernetes-managed PostgreSQL cluster and prepared the existing Todo database for migration.
+
+# Week 2 – Day 9: CloudNativePG Database Migration
+
+**Date:** November 20, 2026  
+**Project:** Highly Available Three-Tier Application on Kubernetes
+
+## 1. Today's Objective
+
+Migrate the existing Todo application's PostgreSQL database from a standalone Docker container to a Kubernetes-managed CloudNativePG cluster and connect the backend to the new database.
+
+## 2. Create and Verify the Database
+
+Created the CNPG Database resource using:
+
+`k8s/cnpg-database.yaml`
+
+Configuration:
+- Database resource: `todo-db`
+- PostgreSQL database: `todo_db`
+- Owner: `todo_user`
+- Cluster: `todo-postgres`
+- Reclaim policy: `retain`
+
+Commands:
+
+```bash
+kubectl apply --dry-run=server -f k8s/cnpg-database.yaml
+
+kubectl apply -f k8s/cnpg-database.yaml
+
+kubectl describe database todo-db -n junior-devops
+```
+
+**Result:** Database successfully created. `Applied: true`.
+
+## 3. Verify the Empty Database
+
+Before migration, checked whether the target database contained tables.
+
+```bash
+kubectl exec -it todo-postgres-1 -n junior-devops -- psql -U postgres -d todo_db -c "\dt"
+```
+
+Result: No tables found. Database was ready for restoration.
+
+## 4. Restore the PostgreSQL Backup
+
+Previously created backup:
+
+`backups/todo_db_backup.sql`
+
+Restored the backup into CloudNativePG using:
+
+```bash
+{ printf 'SET ROLE todo_user;\n'; cat backups/todo_db_backup.sql; } | kubectl exec -i todo-postgres-1 -n junior-devops -- psql -v ON_ERROR_STOP=1 -U postgres -d todo_db
+```
+
+### Important operations
+
+- `SET ROLE todo_user`: Ensures restored database objects belong to the application role.
+- `CREATE TABLE`: Created the Todo table.
+- `CREATE SEQUENCE`: Created the ID sequence.
+- `COPY 4`: Restored four Todo records.
+- `setval = 6`: Restored the sequence position.
+
+**Result:** Backup successfully restored without SQL errors.
+
+## 5. Verify Migrated Records
+
+Command:
+
+```bash
+kubectl exec -it todo-postgres-1 -n junior-devops -- psql -U postgres -d todo_db -c "SELECT id, task, completed FROM todos ORDER BY id;"
+```
+
+Verified records:
+
+| ID | Task | Completed |
+|---|---|---|
+| 2 | Test PostgreSQL persistence | false |
+| 3 | learn Kubernetes | false |
+| 4 | learn docker | false |
+| 5 | CICD pipeline | false |
+
+**Result:** All four original records successfully migrated.
+
+## 6. Connect Backend to CloudNativePG
+
+Updated:
+
+`k8s/backend-deployment.yaml`
+
+Updated database environment variables:
+
+```yaml
+env:
+  - name: DB_HOST
+    value: todo-postgres-rw
+  - name: DB_PORT
+    value: "5432"
+  - name: DB_NAME
+    value: todo_db
+  - name: DB_USER
+    value: todo_user
+  - name: DB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: todo-user-password
+        key: password
+```
+
+The backend now connects to the CNPG read/write service instead of the old standalone PostgreSQL service.
+
+Validated and applied:
+
+```bash
+kubectl apply --dry-run=server -f k8s/backend-deployment.yaml
+
+kubectl apply -f k8s/backend-deployment.yaml
+```
+
+## 7. Verify Backend Deployment
+
+Checked rollout:
+
+```bash
+kubectl rollout status deployment/junior-devops-backend -n junior-devops
+```
+
+Result: Deployment successfully rolled out.
+
+Checked Pods:
+
+```bash
+kubectl get pods -n junior-devops
+```
+
+Observed status:
+
+| Component | Ready | Restarts |
+|---|---|---|
+| Backend | 1/1 | 0 |
+| Frontend | 1/1 | 11 |
+| CNPG PostgreSQL | 1/1 | 7 |
+
+Backend was running successfully.
+
+## 8. Check Backend Logs
+
+Command:
+
+```bash
+kubectl logs deployment/junior-devops-backend -n junior-devops --tail=50
+```
+
+Result:
+- Flask application started successfully.
+- Running on port 5001.
+- No startup errors shown.
+
+## 9. Test Backend and Database Connectivity
+
+Executed the Todo API from inside the backend Pod:
+
+```bash
+kubectl exec deployment/junior-devops-backend -n junior-devops -- python -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:5001/todos'); print('HTTP Status:', r.status); print(r.read().decode())"
+```
+
+Output:
+
+```json
+{
+  "todos": [
+    {"completed": false, "id": 2, "task": "Test PostgreSQL persistence"},
+    {"completed": false, "id": 3, "task": "learn Kubernetes"},
+    {"completed": false, "id": 4, "task": "learn docker"},
+    {"completed": false, "id": 5, "task": "CICD pipeline"}
+  ]
+}
+```
+
+**HTTP Status: 200**
+
+Result:
+- Backend successfully connected to CloudNativePG.
+- All four migrated records were returned.
+- Original record IDs were preserved.
+- Database authentication and connectivity worked.
+
+## 10. Pending Tasks
+
+1. Investigate why the CNPG PostgreSQL Pod has restarted seven times.
+2. Check PostgreSQL Pod events, previous container state, and exit reason.
+3. Test creating new Todo records through the API.
+4. Test updating and deleting Todo records.
+5. Verify the frontend works with the migrated database.
+6. Verify data persistence after backend and database restarts.
+7. Keep the original Docker PostgreSQL container and volume untouched until the migration is completely verified.
+
+## 11. Today's Final Outcome
+
+**Successfully migrated the existing Todo database from standalone Docker PostgreSQL to CloudNativePG in Kubernetes.**
+
+The Kubernetes backend now communicates with the new CNPG database and successfully retrieves all four migrated Todo records.
+
+**Next session:** Investigate PostgreSQL Pod restarts and perform complete CRUD and persistence testing.
+
+---
+
+**Week 2 Progress: CNPG database migration and backend integration completed successfully.**
