@@ -580,3 +580,157 @@ The Kubernetes backend now communicates with the new CNPG database and successfu
 ---
 
 **Week 2 Progress: CNPG database migration and backend integration completed successfully.**
+
+
+# DevOps Project Progress — 23 November 2026
+
+## Today's Objective
+
+Prepare the backend Deployment for Kubernetes Horizontal Pod Autoscaling (HPA) by configuring CPU and memory resources, enabling Metrics Server, and verifying Kubernetes resource metrics.
+
+## 1. Backend Resource Configuration
+
+Initially checked the backend Deployment's resource configuration:
+
+```bash
+kubectl get deployment junior-devops-backend -n junior-devops -o jsonpath='{.spec.template.spec.containers[*].resources}'
+```
+
+**Output:** `{}`
+
+This confirmed that CPU and memory requests and limits were not configured.
+
+Updated `k8s/backend-deployment.yaml` with the following settings:
+
+| Resource | Value |
+|---|---|
+| Replicas | 2 |
+| CPU Request | 100m |
+| CPU Limit | 500m |
+| Memory Request | 128Mi |
+| Memory Limit | 256Mi |
+
+Preserved the existing:
+- Backend Docker image
+- Container port (5001)
+- PostgreSQL connection configuration
+- Kubernetes Secret reference for the database password
+
+Applied the updated Deployment:
+
+```bash
+kubectl apply -f k8s/backend-deployment.yaml
+```
+
+Checked the rollout:
+
+```bash
+kubectl rollout status deployment/junior-devops-backend -n junior-devops
+```
+
+**Result:** Backend Deployment successfully rolled out.
+
+## 2. Enabled Metrics Server
+
+Checked whether Metrics Server was already installed:
+
+```bash
+kubectl get deployment metrics-server -n kube-system
+```
+
+Metrics Server was not found.
+
+Enabled the Minikube Metrics Server addon:
+
+```bash
+minikube addons enable metrics-server -p devops-fresh
+```
+
+**Result:** Metrics Server addon successfully enabled.
+
+Initially, the Metrics API was unavailable. Checked the Metrics Server Pod:
+
+```bash
+kubectl get pods -n kube-system | grep metrics-server
+```
+
+Output:
+
+```text
+metrics-server-9d74bb658-vmrz6   1/1   Running   0   100s
+```
+
+The Metrics Server Pod was running successfully.
+
+## 3. Verified Kubernetes Resource Metrics
+
+Executed:
+
+```bash
+kubectl top pods -n junior-devops
+```
+
+Successfully retrieved CPU and memory usage.
+
+Observed output:
+
+| Pod | CPU Usage | Memory Usage |
+|---|---:|---:|
+| Backend Replica 1 | 1m | 31Mi |
+| Backend Replica 2 | 1m | 31Mi |
+| Frontend Replica 1 | 0m | 10Mi |
+| Frontend Replica 2 | 0m | 12Mi |
+| todo-postgres-1 | 24m | 88Mi |
+| todo-postgres-2 | 24m | 108Mi |
+
+**Result:** Metrics Server is working, and Kubernetes can retrieve live CPU and memory metrics from the Pods.
+
+## 4. Current Project Status
+
+- Backend Deployment configured with 2 replicas.
+- CPU and memory requests configured.
+- CPU and memory limits configured.
+- Backend Deployment rollout completed successfully.
+- Minikube Metrics Server addon enabled.
+- Metrics Server Pod running successfully.
+- Kubernetes Metrics API working.
+- `kubectl top pods` successfully displaying resource usage.
+
+## 5. Next Task — Horizontal Pod Autoscaling (HPA)
+
+The next planned task is to configure Horizontal Pod Autoscaling for the backend.
+
+Planned HPA configuration:
+
+| Setting | Value |
+|---|---|
+| Target Deployment | junior-devops-backend |
+| Minimum Replicas | 2 |
+| Maximum Replicas | 4 |
+| Target CPU Utilization | 50% |
+
+HPA will automatically scale backend Pods based on CPU utilization.
+
+**Note:** HPA configuration has not yet been created or applied. It is pending for the next session.
+
+## Commands Completed Today
+
+```bash
+kubectl get deployment junior-devops-backend -n junior-devops -o jsonpath='{.spec.template.spec.containers[*].resources}'
+
+kubectl apply -f k8s/backend-deployment.yaml
+
+kubectl rollout status deployment/junior-devops-backend -n junior-devops
+
+kubectl get deployment metrics-server -n kube-system
+
+minikube addons enable metrics-server -p devops-fresh
+
+kubectl get pods -n kube-system | grep metrics-server
+
+kubectl top pods -n junior-devops
+```
+
+---
+
+**Today's Achievement:** Successfully configured backend resource requests and limits, enabled Metrics Server, and verified live Kubernetes resource metrics. Ready to proceed with HPA configuration in the next session.
