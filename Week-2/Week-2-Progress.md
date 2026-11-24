@@ -734,3 +734,228 @@ kubectl top pods -n junior-devops
 ---
 
 **Today's Achievement:** Successfully configured backend resource requests and limits, enabled Metrics Server, and verified live Kubernetes resource metrics. Ready to proceed with HPA configuration in the next session.
+
+
+# Week 2 – Day 2 Progress Report
+
+**Date:** November 24, 2026  
+**Project:** Highly Available Three-Tier Application on Kubernetes  
+**Status:** Database setup and controlled switchover completed
+
+---
+
+## 1. Today's Objectives
+
+Today's work focused on completing the PostgreSQL High Availability setup using CloudNativePG (CNPG), configuring database replicas, and testing a controlled primary switchover.
+
+## 2. Minikube Environment
+
+Started the existing Minikube cluster:
+
+```bash
+minikube start -p devops-fresh
+```
+
+Enabled Metrics Server:
+
+```bash
+minikube addons enable metrics-server -p devops-fresh
+```
+
+Checked resource utilization:
+
+```bash
+kubectl top nodes
+kubectl top pods -n junior-devops
+```
+
+Checked node capacity and resource allocation:
+
+```bash
+kubectl describe node devops-fresh
+```
+
+The node was Ready, with MemoryPressure and DiskPressure conditions set to False.
+
+## 3. Horizontal Pod Autoscaling (HPA)
+
+Configured HPA for the backend deployment.
+
+**Configuration:**
+- Minimum replicas: 2
+- Maximum replicas: 4
+- Target CPU utilization: 50%
+
+**Testing performed:**
+- Increased backend CPU utilization using a load test.
+- Observed the backend scale from 2 to 4 replicas.
+- Stopped the load test.
+- Observed the replicas scale back from 4 to 2.
+
+HPA scaling was successfully tested.
+
+## 4. CloudNativePG – Three Database Instances
+
+Updated the CNPG cluster configuration in:
+
+`k8s/cnpg-cluster.yaml`
+
+Changed the instance count to:
+
+```yaml
+spec:
+  instances: 3
+```
+
+Applied the configuration:
+
+```bash
+kubectl apply -f k8s/cnpg-cluster.yaml
+```
+
+**Final database architecture:**
+
+| Instance | Role |
+|---|---|
+| todo-postgres-1 | Replica |
+| todo-postgres-2 | Primary |
+| todo-postgres-3 | Replica |
+
+The cluster contains:
+- 1 Primary PostgreSQL instance.
+- 2 Standby PostgreSQL instances.
+- Streaming replication between the primary and replicas.
+
+Verified replication:
+
+```bash
+kubectl exec -n junior-devops todo-postgres-1 -- psql -U postgres -d postgres -c "SELECT application_name, state, sync_state FROM pg_stat_replication;"
+```
+
+Both replicas were in `streaming` state with asynchronous replication.
+
+## 5. CNPG Status Verification
+
+Installed the CloudNativePG kubectl plugin (version 1.30.2).
+
+Checked the cluster status:
+
+```bash
+kubectl cnpg status todo-postgres -n junior-devops
+```
+
+**Verified results:**
+- Total instances: 3
+- Ready instances: 3
+- Cluster status: Healthy
+- One Primary instance.
+- Two Standby instances.
+- Both replicas streaming.
+- Zero replication lag at the time of verification.
+
+## 6. Controlled Primary Switchover
+
+Initially, the primary instance was:
+
+`todo-postgres-1`
+
+Performed a controlled switchover by promoting the second instance:
+
+```bash
+kubectl cnpg promote -n junior-devops todo-postgres todo-postgres-2
+```
+
+Checked the cluster status again:
+
+```bash
+kubectl cnpg status todo-postgres -n junior-devops
+```
+
+**Result after switchover:**
+
+| Instance | Updated Role |
+|---|---|
+| todo-postgres-1 | Standby |
+| todo-postgres-2 | Primary |
+| todo-postgres-3 | Standby |
+
+The switchover was successful.
+
+The cluster returned to a healthy state with all three instances ready.
+
+**Important:** This was a planned, controlled switchover. An unexpected primary failure and automatic failover have not yet been tested.
+
+## 7. Backend Database Connectivity
+
+The backend connects to PostgreSQL through the CNPG read-write service:
+
+```text
+DB_HOST=todo-postgres-rw
+DB_PORT=5432
+DB_NAME=todo_db
+DB_USER=todo_user
+```
+
+The database password is provided through a Kubernetes Secret.
+
+After the primary changed from `todo-postgres-1` to `todo-postgres-2`, the backend continued using the same service name.
+
+Verified that the backend could still retrieve the existing Todo records after the switchover.
+
+**Result:** Backend database connectivity and existing data access were successful.
+
+## 8. Current Database Architecture
+
+```text
+             Frontend
+                 |
+                 v
+          Flask Backend
+          (2 Replicas)
+                 |
+                 v
+        todo-postgres-rw
+                 |
+                 v
+       CloudNativePG Cluster
+                 |
+       +---------+---------+
+       |         |         |
+       v         v         v
+    Primary   Replica   Replica
+    Instance  Instance  Instance
+       2         1         3
+```
+
+All three PostgreSQL instances are currently running on the same Minikube node.
+
+This demonstrates database replication and controlled primary switchover, but does not provide protection against failure of the entire Kubernetes node.
+
+## 9. Today's Achievements
+
+- [x] Started the existing Minikube environment.
+- [x] Enabled Metrics Server.
+- [x] Configured and tested backend HPA.
+- [x] Increased CNPG cluster size to three instances.
+- [x] Configured one primary and two standby replicas.
+- [x] Verified PostgreSQL streaming replication.
+- [x] Installed the CNPG kubectl plugin.
+- [x] Verified the cluster health.
+- [x] Successfully performed a controlled primary switchover.
+- [x] Verified backend access to existing database records after switchover.
+
+## 10. Remaining Week 2 Tasks
+
+The following work is planned for the next session:
+
+- [ ] Configure GitLab CI/CD pipeline.
+- [ ] Automate Docker image building.
+- [ ] Automate Docker image publishing.
+- [ ] Verify the remaining Week 2 deliverables.
+- [ ] Update project documentation.
+
+---
+
+**End of Day 2 – November 24, 2026**
+
+**Progress:** PostgreSQL High Availability setup, replication, controlled switchover, and backend data verification completed.
