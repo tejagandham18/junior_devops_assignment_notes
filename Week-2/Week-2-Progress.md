@@ -959,3 +959,155 @@ The following work is planned for the next session:
 **End of Day 2 – November 24, 2026**
 
 **Progress:** PostgreSQL High Availability setup, replication, controlled switchover, and backend data verification completed.
+
+# Week 2 – Day 3 Progress
+
+**Date:** 25 November 2026  
+**Project:** Highly Available Three-Tier Application on Kubernetes  
+**Focus:** GitLab Runner Installation and Minikube Network Troubleshooting
+
+## 1. GitLab Runner Installation
+
+- Updated Ubuntu package information using `sudo apt-get update`.
+- Added the official GitLab Runner package repository.
+- Installed GitLab Runner version **19.6.1** successfully.
+- GitLab Runner is installed but has not yet been registered with the GitLab project.
+
+Installation command:
+
+```bash
+sudo apt-get install gitlab-runner
+```
+
+## 2. Minikube Startup Issue
+
+After installing GitLab Runner, its installation cleanup process deleted several unused Docker networks, including the `devops-fresh` network.
+
+When attempting to start the existing Minikube profile, the following error occurred:
+
+```text
+failed to set up container networking:
+network ... not found
+```
+
+This happened because the existing Minikube container was configured to use the deleted Docker network.
+
+## 3. Troubleshooting Performed
+
+### Step 1: Inspected the existing Minikube container
+
+```bash
+docker inspect devops-fresh --format '{{json .NetworkSettings.Networks}}'
+```
+
+Confirmed that:
+- The original Minikube container still exists.
+- Its previous IP configuration is `192.168.58.2`.
+- Its Docker network reference was missing.
+
+### Step 2: Inspected container labels
+
+```bash
+docker inspect devops-fresh --format 'Labels: {{json .Config.Labels}}'
+```
+
+Confirmed that the container belongs to the original Minikube profile `devops-fresh`.
+
+### Step 3: Checked available Docker networks
+
+```bash
+docker network ls
+```
+
+Observed that the `devops-fresh` network was missing.
+
+### Step 4: Inspected Minikube configuration
+
+```bash
+cat ~/.minikube/profiles/devops-fresh/config.json
+```
+
+Verified the existing configuration:
+
+- Profile: `devops-fresh`
+- Driver: Docker
+- Kubernetes version: `v1.35.1`
+- CPU: 2
+- Memory: 2048 MB
+- Existing node IP: `192.168.58.2`
+- Nodes: 1
+
+### Step 5: Checked network routes
+
+```bash
+ip route
+```
+
+Verified that the WSL network uses `172.19.64.0/20`.
+
+### Step 6: Inspected existing Docker network subnets
+
+```bash
+docker network inspect $(docker network ls -q) --format '{{.Name}}: {{range .IPAM.Config}}{{.Subnet}} gateway={{.Gateway}}{{end}}'
+```
+
+Existing networks included:
+
+- bridge: `172.17.0.0/16`
+- ecommerce-devops-platform_default: `172.24.0.0/16`
+- junior-devops-network: `172.25.0.0/16`
+
+The original Minikube subnet `192.168.58.0/24` was not in use by these networks.
+
+### Step 7: Recreated the missing Docker network
+
+Executed:
+
+```bash
+docker network create \
+  --driver=bridge \
+  --subnet=192.168.58.0/24 \
+  --gateway=192.168.58.1 \
+  devops-fresh
+```
+
+The Docker network was successfully created.
+
+## 4. Current Status
+
+### Completed Today
+
+- GitLab Runner v19.6.1 installed.
+- Official GitLab Runner repository configured.
+- Identified the missing Minikube Docker network.
+- Inspected the original Minikube container and configuration.
+- Checked existing Docker subnet allocations.
+- Recreated the `devops-fresh` Docker network.
+
+### Pending
+
+- Successfully start the existing Minikube cluster.
+- Verify Kubernetes nodes and existing workloads.
+- Register GitLab Runner with the GitLab project.
+- Create the application Helm chart.
+- Configure GitLab Container Registry.
+- Create the GitLab CI/CD pipeline.
+
+## 5. Next Session Plan
+
+1. Continue troubleshooting Minikube startup using the latest error output.
+2. Restore access to the existing Kubernetes cluster without deleting the profile.
+3. Verify existing application and database resources.
+4. Register GitLab Runner.
+5. Prepare the Helm chart.
+6. Configure the GitLab CI/CD pipeline.
+
+## Important Notes
+
+- Do not delete or recreate the existing Minikube profile.
+- Preserve existing application containers, database data and Docker volumes.
+- The original Minikube container and profile configuration were found to be intact during inspection.
+- The Docker network was recreated, but successful Minikube startup has not yet been verified.
+- GitLab Runner is installed but CI/CD execution has not started.
+
+**Today's Outcome:** GitLab Runner installation was completed, and the missing Docker network was restored. Minikube startup troubleshooting remains in progress.
