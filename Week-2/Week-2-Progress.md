@@ -1111,3 +1111,549 @@ The Docker network was successfully created.
 - GitLab Runner is installed but CI/CD execution has not started.
 
 **Today's Outcome:** GitLab Runner installation was completed, and the missing Docker network was restored. Minikube startup troubleshooting remains in progress.
+
+
+# Week 2 – Day 4: GitLab Runner & Kubernetes RBAC Configuration
+
+**Date:** November 26, 2026  
+**Project:** Highly Available Three-Tier Application on Kubernetes  
+**Focus:** GitLab Runner integration with Kubernetes and RBAC security configuration
+
+---
+
+## 1. Today's Objective
+
+The main objective was to configure GitLab Runner to communicate with our local Minikube Kubernetes cluster securely.
+
+We want GitLab Runner to execute our CI/CD pipeline, build Docker images, and deploy our application to Kubernetes using Helm.
+
+Before allowing automated deployments, we needed to configure the required tools and Kubernetes permissions.
+
+## 2. Verified Required Tools
+
+We verified that the GitLab Runner Linux user could access the following tools.
+
+| Tool | Purpose | Status |
+|---|---|---|
+| Docker | Build container images | Verified |
+| kubectl | Communicate with Kubernetes | Verified |
+| Helm v4.3.0 | Deploy applications using Helm | Verified |
+
+### Verify Docker access
+
+```bash
+sudo -u gitlab-runner docker version
+```
+
+### Verify kubectl access
+
+```bash
+sudo -u gitlab-runner kubectl --kubeconfig=/etc/gitlab-runner/.kube/config get nodes
+```
+
+### Verify Helm access
+
+```bash
+sudo -u gitlab-runner helm version
+```
+
+**Helm output:**
+
+```text
+Version: v4.3.0
+```
+
+## 3. Fixed Kubernetes Kubeconfig Permission Issues
+
+Initially, GitLab Runner could not access the Kubernetes configuration and Minikube certificates.
+
+### Problem
+
+The original kubeconfig referenced certificate files inside:
+
+```text
+/home/teja/.minikube/
+```
+
+The `gitlab-runner` Linux user did not have permission to access those files.
+
+We inspected the directory permissions:
+
+```bash
+ls -ld /etc/gitlab-runner
+```
+
+The directory had `700` permissions and was owned by root.
+
+### Solution
+
+Allowed directory traversal:
+
+```bash
+sudo chmod 711 /etc/gitlab-runner
+```
+
+Copied the required certificates:
+
+```bash
+sudo cp /home/teja/.minikube/profiles/devops-fresh/client.crt /etc/gitlab-runner/.kube/
+
+sudo cp /home/teja/.minikube/profiles/devops-fresh/client.key /etc/gitlab-runner/.kube/
+
+sudo cp /home/teja/.minikube/ca.crt /etc/gitlab-runner/.kube/
+```
+
+Updated ownership and permissions:
+
+```bash
+sudo chown gitlab-runner:gitlab-runner \
+/etc/gitlab-runner/.kube/client.crt \
+/etc/gitlab-runner/.kube/client.key \
+/etc/gitlab-runner/.kube/ca.crt
+
+sudo chmod 600 \
+/etc/gitlab-runner/.kube/client.crt \
+/etc/gitlab-runner/.kube/client.key \
+/etc/gitlab-runner/.kube/ca.crt
+```
+
+Updated the certificate paths in the kubeconfig:
+
+```bash
+sudo sed -i \
+-e 's|/home/teja/.minikube/profiles/devops-fresh/client.crt|/etc/gitlab-runner/.kube/client.crt|g' \
+-e 's|/home/teja/.minikube/profiles/devops-fresh/client.key|/etc/gitlab-runner/.kube/client.key|g' \
+-e 's|/home/teja/.minikube/ca.crt|/etc/gitlab-runner/.kube/ca.crt|g' \
+/etc/gitlab-runner/.kube/config
+```
+
+### Verification
+
+```bash
+sudo -u gitlab-runner kubectl \
+--kubeconfig=/etc/gitlab-runner/.kube/config get nodes
+```
+
+Output:
+
+```text
+NAME          STATUS   ROLES           VERSION
+devops-fresh  Ready    control-plane   v1.35.1
+```
+
+This confirmed that GitLab Runner could communicate with Minikube.
+
+However, this configuration used personal administrator credentials. We decided to replace them with a restricted Kubernetes ServiceAccount.
+
+## 4. Created a Dedicated Kubernetes ServiceAccount
+
+### What is a ServiceAccount?
+
+A ServiceAccount is an identity used by applications and automation tools to communicate with the Kubernetes API.
+
+Instead of allowing GitLab Runner to use personal administrator credentials, we created a dedicated identity.
+
+**ServiceAccount name:** `gitlab-deployer`  
+**Namespace:** `junior-devops`
+
+Command:
+
+```bash
+kubectl create serviceaccount gitlab-deployer \
+-n junior-devops
+```
+
+Verification:
+
+```bash
+kubectl get serviceaccount gitlab-deployer \
+-n junior-devops
+```
+
+The ServiceAccount was created successfully.
+
+## 5. Created a Kubernetes Role
+
+### What is a Role?
+
+A Kubernetes Role defines the permissions that an identity can have within a particular namespace.
+
+We inspected the existing application resources:
+
+```bash
+kubectl get deployments,services,hpa,configmaps,secrets \
+-n junior-devops
+```
+
+Based on the resources required for deployment, we created:
+
+```text
+k8s/gitlab-deployer-role.yaml
+```
+
+### Role configuration
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gitlab-deployer-role
+  namespace: junior-devops
+
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+```
+
+Applied the Role:
+
+```bash
+kubectl apply -f k8s/gitlab-deployer-role.yaml
+```
+
+### Added additional read-only permissions
+
+Helm and deployment verification may need to inspect Pods, Events and ReplicaSets.
+
+We added read-only access to these resources:
+
+```bash
+kubectl patch role gitlab-deployer-role -n junior-devops \
+--type=json \
+-p='[{"op":"add","path":"/rules/-","value":{"apiGroups":[""],"resources":["pods","events"],"verbs":["get","list","watch"]}},{"op":"add","path":"/rules/-","value":{"apiGroups":["apps"],"resources":["replicasets"],"verbs":["get","list","watch"]}}]'
+```
+
+## 6. Created a Kubernetes RoleBinding
+
+### What is a RoleBinding?
+
+A RoleBinding connects a Role to a ServiceAccount and grants that identity the permissions defined in the Role.
+
+Created:
+
+```text
+k8s/gitlab-deployer-rolebinding.yaml
+```
+
+Configuration:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitlab-deployer-binding
+  namespace: junior-devops
+
+subjects:
+  - kind: ServiceAccount
+    name: gitlab-deployer
+    namespace: junior-devops
+
+roleRef:
+  kind: Role
+  name: gitlab-deployer-role
+  apiGroup: rbac.authorization.k8s.io
+```
+
+Applied:
+
+```bash
+kubectl apply -f k8s/gitlab-deployer-rolebinding.yaml
+```
+
+Now the ServiceAccount was connected to the Role.
+
+### Understanding the relationship
+
+```text
+ServiceAccount
+gitlab-deployer
+       |
+       |
+       v
+RoleBinding
+gitlab-deployer-binding
+       |
+       |
+       v
+Role
+gitlab-deployer-role
+       |
+       |
+       v
+Permissions inside junior-devops namespace
+```
+
+## 7. Verified Kubernetes RBAC Permissions
+
+We used `kubectl auth can-i` to verify whether the ServiceAccount had the expected permissions.
+
+### Check 1: Create Deployments
+
+```bash
+kubectl auth can-i create deployments \
+--as=system:serviceaccount:junior-devops:gitlab-deployer \
+-n junior-devops
+```
+
+Output:
+
+```text
+yes
+```
+
+### Check 2: Update Deployments
+
+```bash
+kubectl auth can-i update deployments \
+--as=system:serviceaccount:junior-devops:gitlab-deployer \
+-n junior-devops
+```
+
+Output:
+
+```text
+yes
+```
+
+### Check 3: Create Services
+
+```bash
+kubectl auth can-i create services \
+--as=system:serviceaccount:junior-devops:gitlab-deployer \
+-n junior-devops
+```
+
+Output:
+
+```text
+yes
+```
+
+### Check 4: Access another namespace
+
+```bash
+kubectl auth can-i create deployments \
+--as=system:serviceaccount:junior-devops:gitlab-deployer \
+-n default
+```
+
+Output:
+
+```text
+no
+```
+
+### Check 5: List Pods
+
+```bash
+kubectl auth can-i list pods \
+--as=system:serviceaccount:junior-devops:gitlab-deployer \
+-n junior-devops
+```
+
+Output:
+
+```text
+yes
+```
+
+**Result:** The ServiceAccount has the required permissions in `junior-devops`, but does not have permission to create Deployments in the `default` namespace.
+
+This demonstrates namespace-scoped access control using Kubernetes RBAC.
+
+## 8. Generated a ServiceAccount Token
+
+A ServiceAccount token is used to authenticate with the Kubernetes API.
+
+Generated a temporary token:
+
+```bash
+kubectl create token gitlab-deployer \
+-n junior-devops \
+--duration=24h
+```
+
+The command succeeded.
+
+The token is temporary and expires after 24 hours.
+
+**Security:** The token should never be committed to Git or shared publicly.
+
+## 9. Created and Tested a Restricted Kubeconfig
+
+We created a separate kubeconfig for the new ServiceAccount.
+
+File location:
+
+```text
+/tmp/gitlab-deployer-config
+```
+
+The kubeconfig was configured with:
+
+- Kubernetes API server address from the current Minikube context.
+- Minikube CA certificate.
+- `gitlab-deployer` ServiceAccount token.
+- Dedicated Kubernetes context.
+- Default namespace set to `junior-devops`.
+
+### Tested access to the project namespace
+
+```bash
+kubectl --kubeconfig=/tmp/gitlab-deployer-config \
+get pods -n junior-devops
+```
+
+Output showed all seven Pods running:
+
+```text
+junior-devops-backend       2 Pods Running
+junior-devops-frontend      2 Pods Running
+todo-postgres               3 Pods Running
+```
+
+### Tested access to the default namespace
+
+```bash
+kubectl --kubeconfig=/tmp/gitlab-deployer-config \
+get pods -n default
+```
+
+Output:
+
+```text
+Error from server (Forbidden):
+pods is forbidden
+```
+
+**Result:** Both tests behaved as expected. The restricted kubeconfig successfully authenticates as `gitlab-deployer` and Kubernetes enforces the namespace permissions.
+
+---
+
+## 10. Today's Achievements
+
+| Task | Status |
+|---|---|
+| Verified Docker access for GitLab Runner | Completed |
+| Verified kubectl access | Completed |
+| Verified Helm access | Completed |
+| Fixed kubeconfig certificate permissions | Completed |
+| Created dedicated ServiceAccount | Completed |
+| Created Kubernetes Role | Completed |
+| Created Kubernetes RoleBinding | Completed |
+| Verified namespace-scoped RBAC | Completed |
+| Generated temporary ServiceAccount token | Completed |
+| Created restricted kubeconfig | Completed |
+| Tested restricted namespace access | Completed |
+| Installed restricted kubeconfig for GitLab Runner | Pending |
+
+---
+
+## 11. Pending Work – Next Session
+
+We stopped after successfully testing the restricted kubeconfig.
+
+### Step 1: Install the restricted kubeconfig
+
+Copy the tested kubeconfig to the GitLab Runner directory:
+
+```bash
+sudo cp /tmp/gitlab-deployer-config \
+/etc/gitlab-runner/.kube/config
+
+sudo chown gitlab-runner:gitlab-runner \
+/etc/gitlab-runner/.kube/config
+
+sudo chmod 600 \
+/etc/gitlab-runner/.kube/config
+```
+
+Then verify:
+
+```bash
+sudo -u gitlab-runner kubectl \
+--kubeconfig=/etc/gitlab-runner/.kube/config \
+get pods -n junior-devops
+```
+
+Also verify that access to the `default` namespace is denied.
+
+**Note:** The token is valid for only 24 hours. Generate a fresh token if it has expired.
+
+### Step 2: Prepare Helm Chart
+
+Organize our application Kubernetes resources into a Helm chart.
+
+### Step 3: Configure GitLab Container Registry
+
+Configure the registry to store backend and frontend Docker images.
+
+### Step 4: Create GitLab CI/CD Pipeline
+
+Create:
+
+```text
+.gitlab-ci.yml
+```
+
+Planned stages:
+
+1. Test
+2. Build
+3. Push
+4. Deploy
+
+### Step 5: Execute the pipeline
+
+Push a code change to GitLab and verify that the pipeline automatically builds, pushes and deploys the updated application.
+
+---
+
+## 12. Important Security Notes
+
+1. The temporary ServiceAccount token expires after 24 hours.
+2. The current Role grants access to Secrets in the `junior-devops` namespace. This includes database credentials, so we should review whether these permissions can be narrowed.
+3. The GitLab Runner registration token was exposed earlier and must be rotated before running CI/CD jobs.
+4. Never commit kubeconfig files, authentication tokens, database passwords or other sensitive credentials to Git.
+5. Keep GitLab Runner restricted to the trusted project.
+
+---
+
+## 13. Important Concepts Learned Today
+
+| Concept | Explanation |
+|---|---|
+| GitLab Runner | Executes CI/CD pipeline jobs |
+| Kubeconfig | Contains Kubernetes connection and authentication configuration |
+| ServiceAccount | Identity used by automation tools and applications |
+| Role | Defines namespace-level permissions |
+| RoleBinding | Connects a Role to an identity |
+| RBAC | Role-Based Access Control |
+| ServiceAccount Token | Authenticates the ServiceAccount with Kubernetes |
+| Namespace-scoped permissions | Restricts access to a particular namespace |
+
+### Key Learning
+
+**Principle of Least Privilege:** An automation tool should receive only the permissions required to perform its job.
+
+We applied this principle by creating a dedicated Kubernetes ServiceAccount for GitLab Runner instead of using personal administrator credentials.
+
+---
+
+**End of Day 4 – November 26, 2026**
+
+**Next session:** Complete the restricted GitLab Runner Kubernetes authentication setup and begin Helm Chart preparation.
