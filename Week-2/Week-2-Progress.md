@@ -1657,3 +1657,361 @@ We applied this principle by creating a dedicated Kubernetes ServiceAccount for 
 **End of Day 4 – November 26, 2026**
 
 **Next session:** Complete the restricted GitLab Runner Kubernetes authentication setup and begin Helm Chart preparation.
+
+# Helm Chart Setup – Progress Notes
+
+**Project:** Junior DevOps – Highly Available Three-Tier Application  
+**Date:** November 27, 2026  
+**Status:** Helm chart created and validated; deployment pending.
+
+---
+
+## 1. Objective
+
+The objective of this phase is to convert the existing Kubernetes YAML manifests into a Helm chart.
+
+Helm helps us manage Kubernetes resources using reusable templates and centralized configuration values.
+
+This will also help us automate application deployments through our GitLab CI/CD pipeline.
+
+## 2. Helm Chart Directory Structure
+
+Created the following directory structure:
+
+```text
+helm/
+└── junior-devops-ha-app/
+    ├── Chart.yaml
+    ├── values.yaml
+    └── templates/
+        ├── backend-deployment.yaml
+        ├── backend-service.yaml
+        ├── backend-hpa.yaml
+        ├── frontend-deployment.yaml
+        └── frontend-service.yaml
+```
+
+## 3. Chart.yaml
+
+Created `Chart.yaml` to define the Helm chart metadata.
+
+```yaml
+apiVersion: v2
+name: junior-devops-ha-app
+description: Helm chart for the Junior DevOps three-tier application
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+```
+
+### Important fields
+
+- `apiVersion`: Helm chart API version.
+- `name`: Chart name.
+- `description`: Description of the chart.
+- `type`: Application chart.
+- `version`: Helm chart version.
+- `appVersion`: Application version.
+
+## 4. values.yaml
+
+Created `values.yaml` to maintain configurable values centrally instead of hardcoding them in Kubernetes templates.
+
+```yaml
+namespace: junior-devops
+
+backend:
+  replicaCount: 2
+  image:
+    repository: junior-devops-ha-app-backend
+    tag: latest
+    pullPolicy: Never
+  service:
+    type: ClusterIP
+    port: 5001
+    targetPort: 5001
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    cpuUtilization: 50
+  database:
+    host: todo-postgres-rw
+    port: "5432"
+    name: todo_db
+    user: todo_user
+    existingSecret: todo-user-password
+    secretKey: password
+
+frontend:
+  replicaCount: 2
+  image:
+    repository: junior-devops-ha-app-frontend
+    tag: k8s-v1
+    pullPolicy: Never
+  service:
+    type: NodePort
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+```
+
+### Important points
+
+1. Backend HPA is enabled with a minimum of 2 and maximum of 4 replicas.
+2. Frontend Deployment uses 2 replicas.
+3. Backend database credentials are referenced from the existing Kubernetes Secret `todo-user-password`.
+4. No database password is stored directly in Helm values.
+5. Current image settings use local Minikube images. These will be changed to GitLab Container Registry images during CI/CD configuration.
+
+## 5. Kubernetes YAML Converted into Helm Templates
+
+Converted five existing Kubernetes manifests into Helm templates.
+
+### Backend Deployment
+
+File: `templates/backend-deployment.yaml`
+
+- Uses Helm variables for image, ports and database configuration.
+- References the existing database Secret.
+- Preserves existing CPU and memory requests and limits.
+- Does not specify `spec.replicas`, because the HPA manages backend scaling.
+
+### Backend Service
+
+File: `templates/backend-service.yaml`
+
+- Service type: ClusterIP
+- Port: 5001
+- Target port: 5001
+
+### Backend HPA
+
+File: `templates/backend-hpa.yaml`
+
+- Uses `autoscaling/v2`.
+- Minimum replicas: 2.
+- Maximum replicas: 4.
+- Target CPU utilization: 50%.
+- Uses a Helm conditional to create the HPA only when `backend.hpa.enabled` is true.
+
+### Frontend Deployment
+
+File: `templates/frontend-deployment.yaml`
+
+- Replicas: 2.
+- Container port: 80.
+- Preserves existing resource requests and limits.
+- Uses configurable image repository and tag.
+
+### Frontend Service
+
+File: `templates/frontend-service.yaml`
+
+- Service type: NodePort.
+- Service port: 80.
+- Target port: 80.
+- NodePort: 30080.
+
+## 6. Helm Validation
+
+### A. Helm Lint
+
+Executed:
+
+```bash
+helm lint helm/junior-devops-ha-app
+```
+
+Output:
+
+```text
+==> Linting helm/junior-devops-ha-app
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+```
+
+**Result:** Successful.
+
+The icon message is only a recommendation, not an error.
+
+### B. Helm Template
+
+Executed:
+
+```bash
+helm template junior-devops helm/junior-devops-ha-app
+```
+
+Helm successfully generated all five Kubernetes resources:
+
+1. Backend Service
+2. Frontend Service
+3. Backend Deployment
+4. Frontend Deployment
+5. Backend HPA
+
+Verified that Helm correctly replaced template variables with values from `values.yaml`.
+
+**Result:** Successful.
+
+### C. Helm Server-Side Dry Run
+
+Executed:
+
+```bash
+helm upgrade --install junior-devops \
+  helm/junior-devops-ha-app \
+  --namespace junior-devops \
+  --take-ownership \
+  --dry-run=server \
+  --debug
+```
+
+Important output:
+
+```text
+Release "junior-devops" does not exist. Installing it now.
+
+STATUS: pending-install
+REVISION: 1
+DESCRIPTION: Dry run complete
+```
+
+**Result:** Dry run completed successfully.
+
+No actual Helm installation was performed.
+
+## 7. Understanding Helm
+
+The basic Helm workflow:
+
+```text
+Chart.yaml
+    |
+    v
+values.yaml
+    |
+    v
+templates/
+    |
+    v
+Helm
+    |
+    v
+Generated Kubernetes YAML
+    |
+    v
+Kubernetes Cluster
+```
+
+- `Chart.yaml` contains chart metadata.
+- `values.yaml` contains configurable values.
+- `templates/` contains Kubernetes YAML with Helm expressions.
+- Helm combines these files and generates Kubernetes manifests.
+- Helm deploys or updates resources when an installation or upgrade command is executed.
+
+One important benefit is that we can change an image tag during CI/CD without manually editing the Deployment template.
+
+Example:
+
+```bash
+helm upgrade --install junior-devops \
+  ./helm/junior-devops-ha-app \
+  --namespace junior-devops \
+  --set backend.image.tag=a82f91c
+```
+
+Here, `a82f91c` is an example commit-based image tag.
+
+## 8. Current Project Status
+
+| Task | Status |
+|---|---|
+| Helm directory structure | Completed |
+| Chart.yaml | Completed |
+| values.yaml | Completed |
+| Backend Deployment template | Completed |
+| Backend Service template | Completed |
+| Backend HPA template | Completed |
+| Frontend Deployment template | Completed |
+| Frontend Service template | Completed |
+| Helm lint | Passed |
+| Helm template | Passed |
+| Server-side dry run | Passed |
+| Actual Helm installation | Pending |
+| Existing resource adoption | Pending |
+| GitLab CI/CD pipeline | Pending |
+
+## 9. Important: Existing Kubernetes Resources
+
+Our application is already running in the `junior-devops` namespace.
+
+Existing resources include:
+
+- Backend Deployment: 2 replicas.
+- Frontend Deployment: 2 replicas.
+- Backend Service: ClusterIP.
+- Frontend Service: NodePort 30080.
+- Backend HPA: Minimum 2, maximum 4.
+- CNPG PostgreSQL cluster: 3 instances.
+
+These resources were originally created using Kubernetes manifests and are not yet managed by Helm.
+
+We discovered that our installed Helm version supports:
+
+```bash
+--take-ownership
+```
+
+This option allows Helm to adopt existing Kubernetes resources.
+
+However, we have not performed the actual adoption yet.
+
+**Important:** The existing application and database resources have not been modified by today's Helm preparation and validation steps.
+
+## 10. Next Steps – November 28, 2026
+
+Continue from the following point:
+
+1. Take configuration backups of the five existing application resources.
+2. Review the backups.
+3. Safely adopt existing resources into Helm using `--take-ownership`.
+4. Verify that all Deployments, Services and HPA remain healthy.
+5. Test frontend and backend application functionality.
+6. Confirm that the Helm release is installed successfully.
+7. Continue GitLab CI/CD pipeline configuration.
+
+### Expected CI/CD Workflow
+
+```text
+Developer pushes code to GitLab
+              |
+              v
+       GitLab CI Pipeline
+              |
+              v
+        Lint and Test
+              |
+              v
+       Build Docker Images
+              |
+              v
+   Push Images to GitLab Registry
+              |
+              v
+       Helm Upgrade/Install
+              |
+              v
+      Kubernetes Deployment
+              |
+              v
+       Verify Application
+```
+
+---
+
+**End of November 27 progress notes.**
+
+**Next starting point:** Back up the five existing Kubernetes application resources before performing the actual Helm adoption.
